@@ -1,0 +1,69 @@
+/* Estilos para el calendario de Chorely */
+
+/* Contenedor del calendario */
+#calendar {
+  height: calc(100vh - 150px);
+  margin: 0;
+  padding: 0;
+}
+
+.fc {
+  height: 100%;
+}
+
+/* Eventos del calendario */
+.fc-event-custom {
+  transition: all 0.2s ease-in-out;
+}
+
+.fc-event-custom:hover {
+  transform: scale(1.02);
+}
+
+/* Estado de los eventos */
+.event-done {
+  opacity: 0.75;
+}
+
+/* Animaciones para drag and drop */
+.participant {
+  transition: opacity 0.2s ease-in-out;
+}
+
+.participant.fc-dragging {
+  opacity: 0.6;
+}
+
+/* Estilos para eventos cuando se está arrastrando sobre ellos */
+.fc-event.drop-hover {
+  box-shadow: 0 0 0 2px #4f46e5;
+  transform: scale(1.05);
+}
+
+/* Notificaciones */
+.notification {
+  z-index: 9999;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Modal styles for event details */
+#chorely-event-modal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#chorely-event-modal > div {
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+}
