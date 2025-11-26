@@ -4,15 +4,17 @@ namespace App\Models;
 
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class User extends Authenticatable
 {
-    use Notifiable;
+    use Notifiable, HasFactory;
+
+    protected $table = 'users';
 
     protected $fillable = [
         'name',
-        'apellido', // agregado
+        'apellido',
         'email',
         'password',
     ];
@@ -22,10 +24,6 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-    ];
-
     // Relaciones
     public function flats()
     {
@@ -33,22 +31,13 @@ class User extends Authenticatable
                     ->withPivot('role', 'id');
     }
 
-    public function assignments()
+    public function flatMemberships()
     {
-        return $this->hasMany(Assignment::class, 'assigned_user_id');
+        return $this->hasMany(FlatMember::class, 'user_id');
     }
 
-    public function vacations()
+    public function calendarEvents()
     {
-        return $this->hasMany(Vacation::class, 'user_id');
+        return $this->hasMany(CalendarEvent::class, 'assigned_user_id');
     }
-
-    public function flatMemberships(){
-    return $this->hasMany(FlatMember::class, 'user_id');
-}
-
- public function calendarEvents() {
-        return $this->belongsToMany(CalendarEvent::class, 'calendar_event_user', 'user_id', 'calendar_event_id');
-    }
-
 }

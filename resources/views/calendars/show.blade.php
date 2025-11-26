@@ -2,15 +2,34 @@
 
 @section('content')
 
-<div class="max-w-full mx-auto p-6">
-  <div class="flex items-center justify-between mb-6">
-    <div>
-      <a href="{{ route('calendars.index') }}" class="inline-block mr-3 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200">Volver a mis calendarios</a>
+<!-- Bloque superior con botón centrado y enlaces a la derecha -->
+<div class="w-full mt-8 mb-8">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-6">
+
+        <!-- Botón centrado -->
+        <button id="saveDistributionBtn"
+            class="px-8 py-3 bg-emerald-500 text-white text-lg font-semibold rounded-xl shadow-lg hover:bg-emerald-600 transition-all duration-200">
+            Guardar esta distribución
+        </button>
+
+        <!-- Enlaces, en la MISMA línea pero más separados -->
+        <div class="flex items-center gap-10">
+            <a href="{{ route('calendars.index') }}"
+               class="text-gray-700 hover:text-gray-900 hover:underline transition">
+               Volver a mis calendarios
+            </a>
+
+            <a href="{{ url('/') }}"
+               class="text-gray-700 hover:text-gray-900 hover:underline transition">
+               Volver a inicio
+            </a>
+        </div>
+
     </div>
-    <div class="flex items-center gap-4">
-      <a href="{{ url('/') }}" class="text-sm text-gray-500 hover:underline">Volver a inicio</a>
-    </div>
-  </div>
+</div>
+
+
+
 
   <div class="flex gap-6">
     <!-- Panel lateral: Tareas y Miembros -->
@@ -74,10 +93,18 @@
 <script>
   const CSRF_TOKEN = '{{ csrf_token() }}';
   const CALENDAR_ID = {{ $calendar->id }};
-  const CALENDAR_INITIAL_DATE = '{{ $calendar->month_start }}'; // <- NUEVO: fecha de inicio del calendario
+  const CALENDAR_INITIAL_DATE = '{{ $calendar->month_start }}';
+  const FLAT_ID = {{ (int) $calendar->flat_id }};
+  const BASE_APP = '{{ url("") }}';
+
+  const CALENDAR_EVENTS_BASE_URL = BASE_APP + '/api/calendar-events';
+  const CALENDAR_HISTORY_EXISTS_URL = BASE_APP + '/api/calendar-history/exists';
+  const CALENDAR_CLONE_URL = BASE_APP + '/api/calendar-history/clone';
+  const CALENDAR_SAVE_HISTORY_URL = BASE_APP + '/api/calendar-history/save'; // <-- nueva
   const FLAT_MEMBERS = {!! json_encode($flatMembers->map(function($m){ return ['id'=>$m->user->id, 'name'=>$m->user->name.' '.$m->user->apellido]; })) !!};
-  const CALENDAR_EVENTS_BASE_URL = '{{ url("/api/calendar-events") }}';
 </script>
+
+
 
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.9/index.global.min.js"></script>
 <script src="{{ asset('js/calendar-chorely.js') }}?v={{ filemtime(public_path('js/calendar-chorely.js')) }}"></script>

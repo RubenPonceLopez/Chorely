@@ -5,8 +5,10 @@ use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\PasswordResetController;
 use App\Http\Controllers\CalendarController;
-use App\Http\Controllers\CalendarEventController;
 use App\Http\Controllers\FlatMemberController;
+use App\Http\Controllers\CalendarHistorialController;
+use App\Http\Controllers\CalendarEventController;
+
 
 // Home
 Route::get('/', function () {
@@ -28,22 +30,24 @@ Route::post('/password/email', [PasswordResetController::class, 'sendResetLinkEm
 Route::get('/password/reset/{token}', [PasswordResetController::class, 'showResetForm'])->name('password.reset');
 Route::post('/password/reset', [PasswordResetController::class, 'reset'])->name('password.update');
 
-// Rutas protegidas
+// Rutas protegidas (vistas)
 Route::middleware(['auth'])->group(function() {
 
-    // Calendario
+    // Calendario (vistas / pages)
     Route::get('/calendars', [CalendarController::class, 'index'])->name('calendars.index');
     Route::get('/calendars/create', [CalendarController::class, 'create'])->name('calendars.create'); 
     Route::post('/calendars', [CalendarController::class, 'store'])->name('calendars.store');        
     Route::get('/calendars/{calendar}', [CalendarController::class, 'show'])->name('calendars.show');
 
-    // Eventos calendario
-    Route::get('/api/calendar-events', [CalendarEventController::class, 'index']);
+     Route::get('/api/calendar-events', [CalendarEventController::class, 'index']);
     Route::post('/api/calendar-events', [CalendarEventController::class, 'store']);
     Route::put('/api/calendar-events/{id}', [CalendarEventController::class, 'update']);
     Route::delete('/api/calendar-events/{id}', [CalendarEventController::class, 'destroy']);
 
-    // Miembros del piso (para modal)
     Route::get('/api/flat-members', [FlatMemberController::class, 'index']);
+
+    Route::get('/api/calendar-history/exists', [CalendarHistorialController::class, 'existsForMonth']);
+    Route::post('/api/calendar-history/clone', [CalendarHistorialController::class, 'cloneFromPrevious']);
+    Route::post('/api/calendar-history/save', [CalendarHistorialController::class, 'saveSnapshot']);
 
 });

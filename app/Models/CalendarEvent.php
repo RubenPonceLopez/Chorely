@@ -7,15 +7,30 @@ use Illuminate\Database\Eloquent\Model;
 class CalendarEvent extends Model {
     protected $table = 'calendar_events';
 
-    public function users() {
-        return $this->belongsToMany(User::class, 'calendar_event_user', 'calendar_event_id', 'user_id');
+    // Permitir asignación masiva
+    protected $fillable = [
+        'calendar_id',
+        'task_id',
+        'assigned_user_id',
+        'event_date',
+        'start_time',
+        'end_time',
+        'status',
+        'notes',
+        'color',
+        'all_day'
+    ];
+
+    // Relaciones
+    public function assignedUser() {
+        return $this->belongsTo(\App\Models\User::class, 'assigned_user_id');
     }
 
     public function task() {
-        return $this->belongsTo(Task::class, 'task_id');
+        return $this->belongsTo(\App\Models\Task::class, 'task_id');
     }
 
     public function calendar() {
-        return $this->belongsTo(Calendar::class, 'calendar_id');
+        return $this->belongsTo(\App\Models\Calendar::class, 'calendar_id');
     }
 }
