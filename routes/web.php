@@ -9,7 +9,6 @@ use App\Http\Controllers\FlatMemberController;
 use App\Http\Controllers\CalendarHistorialController;
 use App\Http\Controllers\CalendarEventController;
 
-
 // Home
 Route::get('/', function () {
     return view('home');
@@ -39,15 +38,34 @@ Route::middleware(['auth'])->group(function() {
     Route::post('/calendars', [CalendarController::class, 'store'])->name('calendars.store');        
     Route::get('/calendars/{calendar}', [CalendarController::class, 'show'])->name('calendars.show');
 
-     Route::get('/api/calendar-events', [CalendarEventController::class, 'index']);
+    // API eventos de calendario (CRUD)
+    Route::get('/api/calendar-events', [CalendarEventController::class, 'index']);
     Route::post('/api/calendar-events', [CalendarEventController::class, 'store']);
     Route::put('/api/calendar-events/{id}', [CalendarEventController::class, 'update']);
     Route::delete('/api/calendar-events/{id}', [CalendarEventController::class, 'destroy']);
 
+    // Miembros del piso (API)
     Route::get('/api/flat-members', [FlatMemberController::class, 'index']);
 
+    // ENDPOINTS relacionados con el historial de calendarios (calendar_historial)
+    // Existencia de calendario para mes/flat (usado por comprobaciones)
     Route::get('/api/calendar-history/exists', [CalendarHistorialController::class, 'existsForMonth']);
+
+    // Clonar desde un calendario existente (antiguo comportamiento)
     Route::post('/api/calendar-history/clone', [CalendarHistorialController::class, 'cloneFromPrevious']);
+
+    // Guardar snapshot del calendario actual en calendar_historial
     Route::post('/api/calendar-history/save', [CalendarHistorialController::class, 'saveSnapshot']);
+
+    // ----------------------------------------------------------------
+    // NUEVAS RUTAS (añadidas)
+    // 1) Listar snapshots guardados para un flat (para poblar modal "Duplicar mes")
+    // 2) Clonar desde un snapshot guardado (clone-from-historial)
+    // ----------------------------------------------------------------
+    // Lista snapshots guardados (calendar_historial) para un flat_id
+    Route::get('/api/calendar-history/list', [CalendarHistorialController::class, 'listSnapshots']); // NUEVO
+
+    // Clonar desde un historial ya guardado: { historial_id, target_year, target_month }
+    Route::post('/api/calendar-history/clone-from-historial', [CalendarHistorialController::class, 'cloneFromHistorial']); // NUEVO
 
 });

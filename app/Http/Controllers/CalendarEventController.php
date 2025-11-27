@@ -10,6 +10,11 @@ use Carbon\Carbon;
 
 class CalendarEventController extends Controller {
 
+    /**
+     * INDEX - devuelve eventos para FullCalendar
+     * FIX: deduplicamos por combinación (calendar_id, task_id, event_date, assigned_user_id)
+     *      para evitar que la UI muestre duplicados aunque la BD tenga filas repetidas.
+     */
     public function index(Request $request) {
         $query = CalendarEvent::with('task','assignedUser');
 
@@ -17,7 +22,7 @@ class CalendarEventController extends Controller {
             $query->where('calendar_id', $request->query('calendar_id'));
         }
 
-        // FullCalendar envía start/end en ISO
+        // Rango start/end (FullCalendar envía ISO)
         if ($request->has('start')) {
             $start = date('Y-m-d', strtotime($request->query('start')));
             $query->where('event_date', '>=', $start);
@@ -27,8 +32,24 @@ class CalendarEventController extends Controller {
             $query->where('event_date', '<=', $end);
         }
 
-        $events = $query->get()->map(function($ev) {
-            return [
+        // Obtener todos (podemos tener duplicados en BD)
+        $events = $query->get();
+
+        // Mapear y deduplicar por clave
+        $deduped = [];
+        foreach ($events as $ev) {
+            $key = sprintf(
+                '%d|%s|%s|%s',
+                (int)$ev->calendar_id,
+                (string)$ev->task_id,
+                (string)$ev->event_date,
+                (string)($ev->assigned_user_id ?? 'NULL')
+            );
+            // Si ya existe la key, omitimos el duplicado
+            if (isset($deduped[$key])) {
+                continue;
+            }
+            $deduped[$key] = [
                 'id' => $ev->id,
                 'title' => ($ev->task ? $ev->task->name : 'Tarea') . ($ev->assignedUser ? ' - ' . ($ev->assignedUser->name ?? '') : ''),
                 'start' => $ev->event_date,
@@ -39,15 +60,16 @@ class CalendarEventController extends Controller {
                     'status' => $ev->status
                 ]
             ];
-        });
+        }
 
-        return response()->json($events);
+        // Devolver valores deduplicados (re-index)
+        $result = array_values($deduped);
+
+        return response()->json($result);
     }
 
-
-
     // ================================
-    //   STORE (CREAR EVENTO)
+    //   STORE (CREAR EVENTO) - con protección contra duplicados
     // ================================
     public function store(Request $request) {
 
@@ -63,23 +85,49 @@ class CalendarEventController extends Controller {
             return response()->json(['errors' => $v->errors()], 422);
         }
 
+        // Normalizar event_date a Y-m-d
+        $data = $request->only([
+            'calendar_id','task_id','assigned_user_id','event_date',
+            'status','start_time','end_time','notes','color','all_day'
+        ]);
+
+        if (!empty($data['event_date'])) {
+            try {
+                $data['event_date'] = Carbon::parse($data['event_date'])->format('Y-m-d');
+            } catch (\Exception $e) {
+                // dejamos como vino si no pudo parsearse (se validó antes)
+            }
+        }
+
         try {
+            // --- PROTECCIÓN: buscar duplicado exacto antes de crear ---
+            $q = CalendarEvent::where('calendar_id', $data['calendar_id'])
+                ->where('task_id', $data['task_id'])
+                ->where('event_date', $data['event_date']);
 
-            // --- Normalizar datos ---
-            $data = $request->only([
-                'calendar_id','task_id','assigned_user_id','event_date',
-                'status','start_time','end_time','notes','color','all_day'
-            ]);
-
-            // Convertir event_date a formato Y-m-d para MySQL
-            if (!empty($data['event_date'])) {
-                try {
-                    $data['event_date'] = Carbon::parse($data['event_date'])->format('Y-m-d');
-                } catch (\Exception $e) {
-                    Log::warning("Fecha no pudo parsearse: ".$data['event_date']);
-                }
+            if (isset($data['assigned_user_id']) && $data['assigned_user_id'] !== null && $data['assigned_user_id'] !== '') {
+                $q->where('assigned_user_id', $data['assigned_user_id']);
+            } else {
+                // buscar rows que tengan assigned_user_id NULL también
+                $q->whereNull('assigned_user_id');
             }
 
+            $existing = $q->first();
+
+            if ($existing) {
+                // Si ya existe, devolvemos info del existente en lugar de crear duplicado.
+                return response()->json([
+                    'id' => $existing->id,
+                    'calendar_id' => $existing->calendar_id,
+                    'task_id' => $existing->task_id,
+                    'assigned_user_id' => $existing->assigned_user_id,
+                    'event_date' => $existing->event_date,
+                    'status' => $existing->status,
+                    'message' => 'Event already exists - returning existing record.'
+                ], 200);
+            }
+
+            // No existe: creamos
             $event = CalendarEvent::create($data);
 
             return response()->json([
@@ -96,8 +144,6 @@ class CalendarEventController extends Controller {
             return response()->json(['message' => 'Error interno al crear evento', 'exception' => $e->getMessage()], 500);
         }
     }
-
-
 
     // ================================
     //   UPDATE (ACTUALIZAR EVENTO)
@@ -131,8 +177,6 @@ class CalendarEventController extends Controller {
             return response()->json(['ok'=>false,'message'=>'Error interno al actualizar evento.'], 500);
         }
     }
-
-
 
     public function destroy($id) {
         $event = CalendarEvent::findOrFail($id);

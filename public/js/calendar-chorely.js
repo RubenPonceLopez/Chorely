@@ -1,187 +1,154 @@
 // public/js/calendar-chorely.js
+// Versión con deduplicación de eventos servidor/cliente y sin refetch().catch()
+// FIX: evita duplicados al arrastrar y crear eventos (cliente + backend)
+
 document.addEventListener('DOMContentLoaded', function() {
 
-  //Manejo del evento draggablec(Permite arrastrar tareas al calendario y asignarle propiedades (usuario, estado etc))
-
-  new FullCalendar.Draggable(document.getElementById('tasks'), {
-    itemSelector: '.draggable-item.task',
-    eventData: function(eventEl) {
-      return {
-        title: eventEl.dataset.name || eventEl.textContent.trim(),
-        extendedProps: {
-          taskId: eventEl.dataset.id,
-          usuario: null,
-          status: 'pending'
-        }
-      };
-    }
-  });
-
-    //Pedidio de eventos al backend
-
-  let calendarEl = document.getElementById('calendar');
-
-  function buildEventsUrl(startDate, endDate) {
-    const s = encodeURIComponent(startDate.toISOString());
-    const e = encodeURIComponent(endDate.toISOString());
-    return `${CALENDAR_EVENTS_BASE_URL}?calendar_id=${CALENDAR_ID}&start=${s}&end=${e}`;
+  // ---------- comprobaciones iniciales ----------
+  if (typeof CALENDAR_EVENTS_BASE_URL === 'undefined' || typeof CALENDAR_ID === 'undefined') {
+    console.error('Variables CALENDAR_EVENTS_BASE_URL o CALENDAR_ID no definidas.'); return;
   }
 
+  // Inicializar draggable (si existe)
+  try {
+    const tasksEl = document.getElementById('tasks');
+    if (tasksEl) {
+      new FullCalendar.Draggable(tasksEl, {
+        itemSelector: '.draggable-item.task',
+        eventData: function(eventEl) {
+          return {
+            title: eventEl.dataset.name || eventEl.textContent.trim(),
+            extendedProps: {
+              taskId: eventEl.dataset.id,
+              usuario: null,
+              status: 'pending'
+            }
+          };
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Draggable no disponible:', e);
+  }
 
-  //Configuración del calendario de la librería "FullCalendar"
+  const calendarEl = document.getElementById('calendar');
+  if (!calendarEl) { console.error('#calendar no encontrado'); return; }
 
-  let calendar = new FullCalendar.Calendar(calendarEl, {
+  // Helper: key para identificar eventos por fecha/task/usuario (dedupe)
+  function eventKeyFromServerItem(item) {
+    // item.start (YYYY-MM-DD), extendedProps.taskId, assigned_user_id
+    const start = item.start ? item.start : (item.event_date || '');
+    const taskId = (item.extendedProps && item.extendedProps.taskId) || item.task_id || '';
+    const userId = (item.extendedProps && item.extendedProps.usuario) || item.assigned_user_id || '';
+    return `${start}::${taskId}::${userId}`;
+  }
+  function eventKeyFromCalEvent(ev) {
+    const start = ev.start ? ev.start.toISOString().slice(0,10) : '';
+    const taskId = (ev.extendedProps && ev.extendedProps.taskId) || '';
+    const userId = (ev.extendedProps && ev.extendedProps.usuario) || '';
+    return `${start}::${taskId}::${userId}`;
+  }
+
+  // Construcción URL de eventos
+  function buildEventsUrl(startISO, endISO) {
+    return `${CALENDAR_EVENTS_BASE_URL}?calendar_id=${CALENDAR_ID}&start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`;
+  }
+
+  // ---------- configuración del calendario ----------
+  const calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
     initialDate: CALENDAR_INITIAL_DATE,
-    droppable: true,  // Permite soltar elementos arrastrados
-    editable: true,  // Permite editar eventos (arrastrar, soltar, etc.)
+    droppable: true,
+    editable: true,
 
-
-      //Carga de eventos desde el servidor 
+    // ----------------------------
+    // events: función que carga desde servidor PERO elimina duplicados
+    // ----------------------------
     events: function(info, successCallback, failureCallback) {
-      const url = buildEventsUrl(info.start, info.end);
+      const url = buildEventsUrl(info.startStr, info.endStr);
       fetch(url, { credentials: 'same-origin' })
         .then(r => {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
-        .then(data => successCallback(data))
+        .then(serverEvents => {
+          try {
+            // Construir conjunto de "keys" de eventos que ya están en el calendario (cliente)
+            // Incluye eventos temporales (_temp true) y permanentes.
+            const clientKeys = {};
+            calendar.getEvents().forEach(ev => {
+              const k = eventKeyFromCalEvent(ev);
+              if (k) clientKeys[k] = true;
+            });
+
+            // Filtrar serverEvents: si la key ya existe en clientKeys, omitimos el server event.
+            // Esto es la clave para evitar que el evento creado por el cliente se "repita"
+            // porque el backend también lo devolvería en la próxima consulta.
+            const filtered = (serverEvents || []).filter(item => {
+              const k = eventKeyFromServerItem(item);
+              if (!k) return true; // si no podemos construir key, mantenerlo
+              // Si en cliente existe la misma key, omitimos (preferimos el evento UI)
+              return !clientKeys[k];
+            });
+
+            successCallback(filtered);
+          } catch (e) {
+            console.error('Error procesando eventos del servidor (dedupe):', e);
+            // En caso de fallo, devolver los eventos originales (para no bloquear)
+            successCallback(serverEvents);
+          }
+        })
         .catch(err => {
           console.error('Error cargando eventos:', err);
           failureCallback(err);
         });
     },
 
-
-      //Manejadores de interacción de eventos (recibir, click, drop))
-    eventReceive: function(info) {  //Cuando sueltas tarea al calendario,abre modal para asignar usuario/estado. 
+    // --------- EVENT RECEIVE: cuando sueltas un draggable en el calendario ----------
+    eventReceive: function(info) {
+      // info.event ya es creado por FullCalendar en la UI.
+      // Marcamos como temporal y abrimos modal para asignar usuario/estado.
+      info.event.setExtendedProp('_temp', true); // FIX: marca temporal
       openUserAssignModal(info.event, { isNew: true });
+      // NOTA: NO hacemos refetch aquí para evitar que el backend "duplique" el evento.
     },
 
-    eventClick: function(info) {  //si pinchas un evento existente abre modal para editarlo
+    eventClick: function(info) {
       openUserAssignModal(info.event, { isNew: false });
     },
 
-    eventDrop: function(info) { //al mover un evento ya creado llama updateEventDate para actualizar fecha via PUT.
+    eventDrop: function(info) {
+      // mover evento ya guardado / temporal
       updateEventDate(info.event);
     },
 
-    eventDidMount: function(info) {  //MANEJA COLORES Y APARIENCIA EN FUNCIÓN DEL ESTADO DEL USAURIO. 
-      if(info.event.extendedProps.status === 'done') {  //Si la propiedad status está en "donde" pinta en verde el evento
-        info.el.style.backgroundColor = '#28a745';  
-      } else if(info.event.extendedProps.usuario) {
+    eventDidMount: function(info) {
+      // pinta segun estado/usuario
+      if (info.event.extendedProps && info.event.extendedProps.status === 'done') {
+        info.el.style.backgroundColor = '#28a745';
+      } else if (info.event.extendedProps && info.event.extendedProps.usuario) {
         info.el.style.backgroundColor = getUserColor(info.event.extendedProps.usuario);
       }
     },
 
-    //detectar cambio de mes y preguntar si duplicar mes anterior
-    // NOTA: la comprobación solo se realizará si el usuario ha navegado manualmente
-    // con los botones prev/next (se marca con window.__fcNavTriggered).
+    // En datesSet limpiamos únicamente eventos temporales sin id
     datesSet: function(info) {
-      // Si no se ha navegado con las flechas (prev/next), no comprobamos nada.
-      if (!window.__fcNavTriggered) {
-        // Reiniciamos la marca por si viene de otra parte — no hacemos nada.
-        window.__fcNavTriggered = false;
-        return;
-      }
-
-      // Solo procede si el usuario navegó con prev/next -> hacemos la comprobación
-      // y luego reseteamos la marca para esperar la siguiente navegación manual.
-      window.__fcNavTriggered = false;
-
-      const newYear = info.start.getFullYear();
-      const newMonth = info.start.getMonth() + 1;
-      const current = new Date(CALENDAR_INITIAL_DATE);
-      const currentYear = current.getFullYear();
-      const currentMonth = current.getMonth() + 1;
-
-      if (newYear !== currentYear || newMonth !== currentMonth) {
-        fetch(`${CALENDAR_HISTORY_EXISTS_URL}?flat_id=${FLAT_ID}&year=${newYear}&month=${newMonth}`, { credentials: 'same-origin' })
-          .then(r => {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.json();
-          })
-          .then(res => {
-            if (!res.exists) {
-              const prettyMonth = `${String(newMonth).padStart(2,'0')}/${newYear}`;
-              if (confirm(`No existe un calendario para ${prettyMonth}. ¿Quieres crear uno copiando la distribución del mes actual?`)) {
-                const payload = {
-                  source_calendar_id: CALENDAR_ID,
-                  target_year: newYear,
-                  target_month: newMonth,
-                  name: null
-                };
-                fetch(CALENDAR_CLONE_URL, {
-                  method: 'POST',
-                  headers: {'Content-Type':'application/json','X-CSRF-TOKEN': CSRF_TOKEN},
-                  credentials: 'same-origin',
-                  body: JSON.stringify(payload)
-                })
-                .then(r => r.json())
-                .then(res2 => {
-                  if (res2.ok && res2.redirect) {
-                    window.location.href = res2.redirect;
-                  } else {
-                    alert(res2.message || 'No se pudo crear el calendario.');
-                  }
-                })
-                .catch(err => {
-                  console.error('Error clonando calendario:', err);
-                  alert('Error creando el calendario.');
-                });
-              }
-            }
-          })
-          .catch(err => {
-            console.error('Error comprobando existencia de calendario:', err);
-          });
-      }
+      try {
+        // Eliminamos eventos `_temp` que no tienen id (por ejemplo si usuario cerró modal sin guardar)
+        calendar.getEvents().forEach(ev => {
+          if (ev.extendedProps && ev.extendedProps._temp && !ev.id) {
+            ev.remove();
+          }
+        });
+      } catch (e) { console.warn('datesSet cleanup error:', e); }
     }
   });
 
   calendar.render();
 
-  // -------------------------
-  // Flag + listeners para detectar navegación MANUAL con flechas
-  // -------------------------
-  // Usamos una variable global simple (window.__fcNavTriggered)
-  // que se pone a true cuando el usuario pulsa prev/next (o las flechas del toolbar).
-  // datesSet leerá esa marca y solo actuará si estaba a true.
-  window.__fcNavTriggered = false;
-
-  // Intentamos enganchar a los botones que FullCalendar crea (.fc-prev-button / .fc-next-button)
-  // y también añadimos un handler delegated sobre calendarEl para capturar clicks si los botones
-  // se crean dinámicamente o son personalizados.
-  try {
-    const toolbar = calendarEl.querySelector('.fc-toolbar');
-    if (toolbar) {
-      const prev = toolbar.querySelector('.fc-prev-button');
-      const next = toolbar.querySelector('.fc-next-button');
-
-      if (prev) prev.addEventListener('click', () => { window.__fcNavTriggered = true; });
-      if (next) next.addEventListener('click', () => { window.__fcNavTriggered = true; });
-    }
-
-    // Delegación adicional: si por alguna razón las flechas están fuera o cambian, detectamos clicks.
-    calendarEl.addEventListener('click', (ev) => {
-      const t = ev.target;
-      if (!t) return;
-      if (t.classList && (t.classList.contains('fc-prev-button') || t.classList.contains('fc-next-button'))) {
-        window.__fcNavTriggered = true;
-      }
-    });
-
-    // Opcional: si el usuario usa teclas de flecha para navegar (izq/der), consideramos eso como navegación manual.
-    calendarEl.addEventListener('keydown', (ev) => {
-      if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
-        window.__fcNavTriggered = true;
-      }
-    });
-  } catch (e) {
-    console.warn('No se pudo enganchar listeners de navegación prev/next:', e);
-  }
-
-  // --- modal logic ---
+  // ---------------------------
+  // Modal / UI: asignar usuario y status
+  // ---------------------------
   const modal = document.getElementById('userModal');
   const userSelect = document.getElementById('userSelect');
   const statusSelect = document.getElementById('statusSelect');
@@ -192,27 +159,26 @@ document.addEventListener('DOMContentLoaded', function() {
     currentEvent = event;
     currentIsNew = !!opts.isNew;
     userSelect.innerHTML = '';
-    FLAT_MEMBERS.forEach(u => {
-      let opt = document.createElement('option');
-      opt.value = u.id;
-      opt.text = u.name;
-      userSelect.add(opt);
-    });
-
-    if (event.extendedProps && event.extendedProps.usuario) {
-      userSelect.value = event.extendedProps.usuario;
+    if (Array.isArray(FLAT_MEMBERS)) {
+      FLAT_MEMBERS.forEach(u => {
+        let opt = document.createElement('option');
+        opt.value = u.id;
+        opt.text = u.name;
+        userSelect.add(opt);
+      });
     }
-
-    statusSelect.value = event.extendedProps.status || 'pending';
+    userSelect.value = event.extendedProps && event.extendedProps.usuario ? event.extendedProps.usuario : '';
+    statusSelect.value = event.extendedProps && event.extendedProps.status ? event.extendedProps.status : 'pending';
     modal.style.display = 'block';
   }
 
   document.getElementById('assignBtn').addEventListener('click', function() {
-    if(!currentEvent) return;
-    let userId = userSelect.value || null;
-    let userName = userSelect.options[userSelect.selectedIndex] ? userSelect.options[userSelect.selectedIndex].text : '';
-    let status = statusSelect.value || 'pending';
+    if (!currentEvent) return;
+    const userId = userSelect.value || null;
+    const userName = (userSelect.options[userSelect.selectedIndex] || {}).text || '';
+    const status = statusSelect.value || 'pending';
 
+    // Actualizamos en UI
     currentEvent.setExtendedProp('usuario', userId);
     currentEvent.setExtendedProp('status', status);
     const baseTitle = (currentEvent.title || '').split(' - ')[0];
@@ -220,11 +186,8 @@ document.addEventListener('DOMContentLoaded', function() {
     currentEvent.setProp('title', newTitle);
     currentEvent.setProp('backgroundColor', status === 'done' ? '#28a745' : getUserColor(userId));
 
+    // Si es nuevo (drop reciente) -> guardamos en servidor
     if (currentIsNew) {
-
-      // --------------------------------------------------------------------
-      // ✔ ✔ ✔  BLOQUE SUSTITUIDO — POST NUEVO EVENTO (el que pediste)
-      // --------------------------------------------------------------------
       const payload = {
         calendar_id: CALENDAR_ID,
         task_id: currentEvent.extendedProps.taskId,
@@ -233,89 +196,121 @@ document.addEventListener('DOMContentLoaded', function() {
         status: status
       };
 
+      // Deshabilitar botón y marcar estado visual en modal si quieres
+      const assignBtn = document.getElementById('assignBtn');
+      assignBtn.disabled = true;
+      assignBtn.textContent = 'Guardando...';
+
+      // POST crear evento
       fetch(CALENDAR_EVENTS_BASE_URL, {
         method: 'POST',
         headers: {
-          'Content-Type':'application/json',
+          'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
           'X-CSRF-TOKEN': CSRF_TOKEN
         },
         credentials: 'same-origin',
         body: JSON.stringify(payload)
       })
       .then(async r => {
-        const text = await r.text().catch(()=>null);
         let data = null;
-        try { data = text ? JSON.parse(text) : null; } catch(e) {}
+        try { data = await r.json(); } catch (e) { data = null; }
 
         if (!r.ok) {
-          console.error('Respuesta no OK al crear evento:', r.status, text, data);
-          if (r.status === 422 && data && data.errors) {
-            console.warn('Errores de validación:', data.errors);
-            alert('Errores de validación: ' + JSON.stringify(data.errors));
-          } else {
-            alert('Error creando evento: servidor respondió ' + r.status + '\nMira la consola para más detalles.');
-          }
-          return Promise.reject({ status: r.status, body: text, data });
+          console.error('Error creando evento:', r.status, data);
+          alert('Error creando evento. Revisa la consola.');
+          // No hacemos refetch para evitar duplicados; en su lugar, dejamos el evento temporal.
+          return;
         }
 
+        // Si backend devuelve id, asignarlo al evento temporal y desmarcar temp.
         if (data && data.id) {
           currentEvent.setProp('id', data.id);
+          currentEvent.setExtendedProp('_temp', false);
+          // ya está persistido en BBDD y la UI reflecta el id -> futuras cargas no crearán duplicado
         } else {
-          console.warn('Respuesta creada pero sin id:', data);
+          // si el backend no devolvió id, mantenemos temp (pero avisamos)
+          console.warn('Creado pero no se devolvió id:', data);
         }
+
+        // IMPORTANTE: NO hacemos calendar.refetchEvents() aquí.
+        // Razon: refetch introduciría el evento backend además del temporal
+        // y causaría duplicado. Hemos actualizado el evento temporal con el id
+        // por lo que la UI ya está correcta.
       })
       .catch(err => {
-        console.error('Error guardando evento (catch):', err);
-        alert('Error guardando el evento en el servidor. Revisa la consola y storage/logs/laravel.log');
+        console.error('Error guardando evento:', err);
+        alert('Error guardando el evento (ver consola).');
+      })
+      .finally(() => {
+        assignBtn.disabled = false;
+        assignBtn.textContent = 'Asignar';
       });
-      // --------------------------------------------------------------------
-      // ✔ ✔ ✔  FIN del bloque nuevo
-      // --------------------------------------------------------------------
 
     } else {
+      // evento existente -> PUT update
       if (currentEvent.id) {
         fetch(`${CALENDAR_EVENTS_BASE_URL}/${currentEvent.id}`, {
           method: 'PUT',
           headers: {'Content-Type':'application/json','X-CSRF-TOKEN': CSRF_TOKEN},
           credentials: 'same-origin',
           body: JSON.stringify({ assigned_user_id: userId, status: status, event_date: currentEvent.startStr })
-        }).then(r => r.json())
-          .then(resp => {})
-          .catch(err => {
-            console.error('Error actualizando evento:', err);
-            alert('Error actualizando el evento en servidor.');
-          });
+        })
+        .then(async r => {
+          if (!r.ok) {
+            const txt = await r.text().catch(()=>null);
+            console.error('Error actualizando evento:', r.status, txt);
+            alert('Error actualizando evento en servidor.');
+          } else {
+            // OK -> nada más; evitamos refetch para no sobrescribir estados temporales
+          }
+        })
+        .catch(err => {
+          console.error('Error en update event:', err);
+          alert('Error actualizando evento.');
+        });
       }
     }
 
     modal.style.display = 'none';
   });
 
+  // cerrar modal cliqueando fuera
   window.addEventListener('click', function(e) {
     if (e.target === modal) modal.style.display = 'none';
   });
 
-  function updateEventDate(event) {
-    if (!event.id) { console.warn('Intentando actualizar evento sin id en servidor.'); return; }
-    fetch(`${CALENDAR_EVENTS_BASE_URL}/${event.id}`, {
-      method: 'PUT',
-      headers: {'Content-Type':'application/json','X-CSRF-TOKEN': CSRF_TOKEN},
-      credentials: 'same-origin',
-      body: JSON.stringify({ event_date: event.startStr })
-    }).then(r => r.json())
-      .catch(err => console.error('Error actualizando fecha evento:', err));
+  // actualizar fecha al mover evento
+  async function updateEventDate(event) {
+    // si no tiene id -> evento temporal: actualizamos en UI solo
+    if (!event.id) {
+      // simple: mantenemos temporal con la nueva fecha (no guardado)
+      return;
+    }
+    try {
+      const r = await fetch(`${CALENDAR_EVENTS_BASE_URL}/${event.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json','X-CSRF-TOKEN': CSRF_TOKEN},
+        credentials: 'same-origin',
+        body: JSON.stringify({ event_date: event.startStr })
+      });
+      if (!r.ok) {
+        console.error('Error al actualizar fecha del evento:', r.status);
+        alert('No se pudo actualizar la fecha en servidor.');
+      }
+    } catch (e) {
+      console.error('Error updateEventDate:', e);
+    }
   }
 
   function getUserColor(userId) {
     if (!userId) return '#3788d8';
     const colors = ['#3788d8','#ffc107','#fd7e14','#20c997','#6f42c1','#e83e8c'];
-    let idx = Number(userId) || 0;
+    const idx = Number(userId) || 0;
     return colors[idx % colors.length];
   }
 
-  // --- guardar snapshot ---
+  // ---------- Guardar snapshot (ya existente) ----------
   const saveBtn = document.getElementById('saveDistributionBtn');
   if (saveBtn) {
     saveBtn.addEventListener('click', function() {
@@ -337,6 +332,9 @@ document.addEventListener('DOMContentLoaded', function() {
       .then(resp => {
         if (resp.ok) {
           alert(resp.message || 'Distribución guardada correctamente.');
+          // Opcional: tras guardar snapshot puedes decidir forzar recarga para
+          // sincronizar UI con lo que haya en la BBDD (si lo deseas).
+          // window.location.reload();
         } else {
           alert(resp.message || 'No se pudo guardar la distribución.');
         }
@@ -352,4 +350,4 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-});
+}); // DOMContentLoaded
