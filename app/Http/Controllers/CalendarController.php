@@ -152,6 +152,60 @@ class CalendarController extends Controller
     }
 
     /**
+ * GET /api/calendar/get-or-create
+ * Params: flat_id, year, month
+ * Devuelve: { ok: true, calendar_id: int, created: bool, month_start: 'YYYY-MM-DD' }
+ * Si no existe calendario para ese piso/mes lo crea (autorizado solo para miembros/creador).
+ */
+public function getOrCreateForMonth(\Illuminate\Http\Request $request)
+{
+    $data = $request->validate([
+        'flat_id' => 'required|integer|exists:flats,id',
+        'year'    => 'required|integer',
+        'month'   => 'required|integer|min:1|max:12'
+    ]);
+
+    $userId = $request->user()?->id ?? null;
+
+    // autorización: el usuario debe ser creador o miembro del flat
+    $flat = \App\Models\Flat::findOrFail($data['flat_id']);
+    $isMember = false;
+    if ($userId) {
+        $isMember = ($flat->members()->where('user_id', $userId)->exists())
+                    || (isset($flat->created_by) && $flat->created_by == $userId);
+    }
+
+    if (! $isMember) {
+        return response()->json(['ok' => false, 'message' => 'No autorizado.'], 403);
+    }
+
+    $monthStart = \Carbon\Carbon::create($data['year'], $data['month'], 1)->startOfMonth()->format('Y-m-d');
+
+    $calendar = \App\Models\Calendar::where('flat_id', $data['flat_id'])
+                ->where('month_start', $monthStart)
+                ->first();
+
+    $created = false;
+    if (! $calendar) {
+        // crear calendario minimalista; name opcional
+        $calendar = \App\Models\Calendar::create([
+            'flat_id' => $data['flat_id'],
+            'name' => 'Auto - ' . \Carbon\Carbon::parse($monthStart)->format('F Y'),
+            'month_start' => $monthStart,
+            'created_by' => $userId ?? null
+        ]);
+        $created = true;
+    }
+
+    return response()->json([
+        'ok' => true,
+        'calendar_id' => $calendar->id,
+        'created' => $created,
+        'month_start' => $calendar->month_start
+    ]);
+}
+
+    /**
      * show: renderiza la vista del calendario (mantengo tu implementación).
      */
     public function show(Calendar $calendar)

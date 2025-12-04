@@ -15,63 +15,73 @@ class CalendarEventController extends Controller {
      * FIX: deduplicamos por combinación (calendar_id, task_id, event_date, assigned_user_id)
      *      para evitar que la UI muestre duplicados aunque la BD tenga filas repetidas.
      */
-    public function index(Request $request) {
-        $query = CalendarEvent::with('task','assignedUser');
+    public function index(Request $request)
+{
+    $query = CalendarEvent::with('task','assignedUser');
 
-        if ($request->has('calendar_id')) {
-            $query->where('calendar_id', $request->query('calendar_id'));
-        }
-
-        // Rango start/end (FullCalendar envía ISO)
-        if ($request->has('start')) {
-            $start = date('Y-m-d', strtotime($request->query('start')));
-            $query->where('event_date', '>=', $start);
-        }
-        if ($request->has('end')) {
-            $end = date('Y-m-d', strtotime($request->query('end')));
-            $query->where('event_date', '<=', $end);
-        }
-
-        // Obtener todos (podemos tener duplicados en BD)
-        $events = $query->get();
-
-        // Mapear y deduplicar por clave
-        $deduped = [];
-        foreach ($events as $ev) {
-            $key = sprintf(
-                '%d|%s|%s|%s',
-                (int)$ev->calendar_id,
-                (string)$ev->task_id,
-                (string)$ev->event_date,
-                (string)($ev->assigned_user_id ?? 'NULL')
-            );
-            // Si ya existe la key, omitimos el duplicado
-            if (isset($deduped[$key])) {
-                continue;
-            }
-            $deduped[$key] = [
-                'id' => $ev->id,
-                'title' => ($ev->task ? $ev->task->name : 'Tarea') . ($ev->assignedUser ? ' - ' . ($ev->assignedUser->name ?? '') : ''),
-                'start' => $ev->event_date,
-                'allDay' => (bool)$ev->all_day,
-                'extendedProps' => [
-                    'taskId' => $ev->task_id,
-                    'usuario' => $ev->assigned_user_id,
-                    'status' => $ev->status
-                ]
-            ];
-        }
-
-        // Devolver valores deduplicados (re-index)
-        $result = array_values($deduped);
-
-        return response()->json($result);
+    if ($request->has('calendar_id')) {
+        $query->where('calendar_id', $request->query('calendar_id'));
     }
+
+    if ($request->has('start')) {
+        $start = date('Y-m-d', strtotime($request->query('start')));
+        $query->where('event_date', '>=', $start);
+    }
+    if ($request->has('end')) {
+        $end = date('Y-m-d', strtotime($request->query('end')));
+        $query->where('event_date', '<=', $end);
+    }
+
+    $events = $query->get();
+
+    $result = [];
+
+    foreach ($events as $ev) {
+
+        // CONVERTIR HORAS A ISO PARA FULLCALENDAR
+        $startISO = null;
+        $endISO = null;
+
+        if ($ev->event_date && $ev->start_time) {
+            $startISO = $ev->event_date . 'T' . substr($ev->start_time,0,5) . ':00';
+        }
+        if ($ev->event_date && $ev->end_time) {
+            $endISO = $ev->event_date . 'T' . substr($ev->end_time,0,5) . ':00';
+        }
+
+        $result[] = [
+            'id' => $ev->id,
+            'title' => ($ev->task ? $ev->task->name : 'Tarea') .
+                       ($ev->assignedUser ? ' - ' . $ev->assignedUser->name : ''),
+
+            'start' => $startISO ?? $ev->event_date,
+            'end'   => $endISO,
+
+            'allDay' => false,
+
+            'backgroundColor' => $ev->color ?? '#3788d8',
+
+            'extendedProps' => [
+                'taskId' => $ev->task_id,
+                'usuario' => $ev->assigned_user_id,
+                'status' => $ev->status,
+                'start_time' => substr($ev->start_time ?? '',0,5),
+                'end_time' => substr($ev->end_time ?? '',0,5),
+                'color' => $ev->color,
+            ]
+        ];
+    }
+
+    return response()->json($result);
+}
+
 
     // ================================
     //   STORE (CREAR EVENTO) - con protección contra duplicados
     // ================================
     public function store(Request $request) {
+
+        Log::info("STORE EVENT: ", $request->all()); // <--- ayuda brutal para debug
 
         $v = Validator::make($request->all(), [
             'calendar_id' => 'required|integer|exists:calendars,id',

@@ -25,7 +25,29 @@
     @include('partials.navbar')
     @yield('content')
     
+    {{-- Hidden logout form (POST con CSRF) --}}
+    <form id="logout-form" action="{{ route('logout') }}" method="POST" style="display:none;">
+        @csrf
+    </form>
+
     {{-- Scripts --}}
     @stack('scripts')
+
+    {{-- Small JS helper: any <a href="/logout"> se convertirá en submit POST (evita 419) --}}
+    <script>
+      (function(){
+        document.addEventListener('click', function(e){
+          const a = e.target.closest && e.target.closest('a');
+          if (!a) return;
+          const href = a.getAttribute('href') || '';
+          // Normaliza rutas que terminen en /logout o ?logout
+          if (href.replace(window.location.origin, '').split('?')[0].endsWith('/logout')) {
+            e.preventDefault();
+            const form = document.getElementById('logout-form');
+            if (form) form.submit();
+          }
+        }, true);
+      })();
+    </script>
 </body>
 </html>

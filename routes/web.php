@@ -34,11 +34,12 @@ Route::middleware(['auth'])->group(function() {
 
     // Calendario (vistas / pages)
     Route::get('/calendars', [CalendarController::class, 'index'])->name('calendars.index');
-    Route::get('/calendars/create', [CalendarController::class, 'create'])->name('calendars.create'); 
-    Route::post('/calendars', [CalendarController::class, 'store'])->name('calendars.store');        
+    Route::get('/calendars/create', [CalendarController::class, 'create'])->name('calendars.create');
+    Route::post('/calendars', [CalendarController::class, 'store'])->name('calendars.store');
     Route::get('/calendars/{calendar}', [CalendarController::class, 'show'])->name('calendars.show');
 
     // API eventos de calendario (CRUD)
+    // (estas rutas ya usan el prefijo /api en el frontend)
     Route::get('/api/calendar-events', [CalendarEventController::class, 'index']);
     Route::post('/api/calendar-events', [CalendarEventController::class, 'store']);
     Route::put('/api/calendar-events/{id}', [CalendarEventController::class, 'update']);
@@ -46,6 +47,14 @@ Route::middleware(['auth'])->group(function() {
 
     // Miembros del piso (API)
     Route::get('/api/flat-members', [FlatMemberController::class, 'index']);
+
+    // Añadir miembro al piso
+    Route::post('/flats/{flat}/members', [FlatMemberController::class, 'store'])
+         ->name('flats.members.store');
+
+    // Eliminar miembro
+    Route::delete('/flats/{flat}/members/{member}', [FlatMemberController::class, 'destroy'])
+         ->name('flats.members.destroy');
 
     // ENDPOINTS relacionados con el historial de calendarios (calendar_historial)
     // Existencia de calendario para mes/flat (usado por comprobaciones)
@@ -67,5 +76,13 @@ Route::middleware(['auth'])->group(function() {
 
     // Clonar desde un historial ya guardado: { historial_id, target_year, target_month }
     Route::post('/api/calendar-history/clone-from-historial', [CalendarHistorialController::class, 'cloneFromHistorial']); // NUEVO
+
+    // Obtener o crear calendario para un mes dado
+    // (ruta 'normal' que tenías)
+    Route::get('/calendar/get-or-create', [CalendarController::class, 'getOrCreateForMonth']);
+
+    // ---- Para compatibilidad con el frontend que pide /api/calendar/get-or-create ----
+    // Añadimos la misma acción también bajo /api/* para evitar 404 sin tocar JS
+    Route::get('/api/calendar/get-or-create', [CalendarController::class, 'getOrCreateForMonth']);
 
 });

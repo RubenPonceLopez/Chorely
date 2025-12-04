@@ -16,6 +16,7 @@ class CalendarHistorial extends Model
         'flat_id',
         'year',
         'month',
+        'versiones',
         'snapshot', // JSON con la distribución
         'created_at'
     ];
