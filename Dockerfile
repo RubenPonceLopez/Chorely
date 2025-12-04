@@ -1,6 +1,6 @@
 FROM php:8.2-apache
 
-# Instalar dependencias necesarias
+# Instalar extensiones necesarias (Laravel usa pdo_mysql)
 RUN docker-php-ext-install pdo_mysql
 
 # Instalar xdebug para mejorar var_dump()
@@ -15,9 +15,19 @@ RUN echo "xdebug.mode=develop" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebu
 # Habilitar mod_rewrite
 RUN a2enmod rewrite
 
-# Permitir que .htaccess sobreescriba directivas
-RUN sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
+# 🔧 Cambiar el DocumentRoot de Apache a /var/www/html/public
+RUN sed -ri 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf
 
-# Ajustar el nivel de reporte de errores de PHP
+# 🔧 Crear config específica para la carpeta public de Laravel
+RUN printf "<Directory /var/www/html/public/>\n\
+    AllowOverride All\n\
+    Require all granted\n\
+</Directory>\n" > /etc/apache2/conf-available/laravel.conf \
+    && a2enconf laravel
+
+# (Opcional) Ajustar el nivel de reporte de errores de PHP
 RUN echo "error_reporting = E_ALL & ~E_NOTICE" > /usr/local/etc/php/conf.d/error-level.ini && \
     echo "display_errors = On" >> /usr/local/etc/php/conf.d/error-level.ini
+
+# Directorio de trabajo por defecto
+WORKDIR /var/www/html
