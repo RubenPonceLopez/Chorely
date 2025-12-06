@@ -20,10 +20,15 @@ class LoginController extends Controller
     // Procesar credenciales y autenticar
     public function authenticate(Request $request)
     {
-        $credentials = $request->validate([
-            'email' => ['required','email'],
-            'password' => ['required'],
-        ]);
+        // Validación: tercera posición son mensajes personalizados (aquí vacíos),
+    // cuarta posición son los 'attribute names' que cambian el nombre mostrado.
+    $credentials = $request->validate([
+        'email' => ['required','email'],
+        'password' => ['required'],
+    ], [], [
+        'email' => 'correo electrónico',
+        'password' => 'contraseña',
+    ]);
 
         // Debug: Verificar que las credenciales lleguen
         Log::info('Attempting login with email: ' . $credentials['email']);
