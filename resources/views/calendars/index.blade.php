@@ -1,12 +1,16 @@
+{{-- resources/views/calendars/index.blade.php --}}
+
 @extends('layouts.app')
 
 @section('title', 'Mis Calendarios - Chorely')
 
+{{-- Indica al layout que NO muestre la topbar global (evita duplicados) --}}
+@section('hide_topbar', true)
+
 @section('content')
 
-@include('partials.navbar')
-
-<div class="max-w-7xl mx-auto px-6 py-8"><div class="flex items-center justify-between mb-6">
+<div class="max-w-7xl mx-auto px-6 py-8">
+    <div class="flex items-center justify-between mb-6">
         <div>
             <a href="{{ route('calendars.index') }}" class="inline-block px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg">Mis calendarios</a>
         </div>
@@ -51,6 +55,12 @@
             </div>
             @endforeach
         </div>
+
+        {{-- Paginación si la hubiera --}}
+        <div class="mt-6">
+            {{ $calendars->links() }}
+        </div>
+
     @else
         <div class="text-center py-12">
             <div class="bg-gray-50 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-4">
@@ -79,4 +89,3 @@
 </div>
 
 @endsection
-

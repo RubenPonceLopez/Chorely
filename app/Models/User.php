@@ -17,11 +17,18 @@ class User extends Authenticatable
         'apellido',
         'email',
         'password',
+        'is_admin',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+    ];
+
+    protected $casts = [
+    'is_admin' => 'boolean',
+    // si ya tienes email_verified_at o similares, mantenlos
+    'email_verified_at' => 'datetime',
     ];
 
     // Relaciones

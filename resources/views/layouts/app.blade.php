@@ -15,8 +15,7 @@
     <div class="w-full max-w-6xl flex flex-col lg:flex-row bg-white rounded-3xl shadow-2xl overflow-hidden">
 
         {{-- Panel Izquierdo - Branding --}}
-        <div
-            class="lg:w-1/2 bg-gradient-to-br from-emerald-500 to-teal-600 p-12 flex flex-col justify-between text-white">
+        <div class="lg:w-1/2 bg-gradient-to-br from-emerald-500 to-teal-600 p-12 flex flex-col justify-between text-white">
             <div>
                 <div class="flex items-center gap-3 mb-8">
                     <div class="bg-white/20 backdrop-blur-sm p-3 rounded-2xl">
@@ -92,6 +91,36 @@
         {{-- Panel Derecho - Contenido dinámico (login, register, etc.) --}}
         <div class="lg:w-1/2 p-12 flex flex-col justify-center">
             <div class="max-w-md mx-auto w-full">
+
+                {{-- Top bar dentro del panel derecho (usuario + logout + admin link)
+                     Sólo se muestra si la vista NO ha declarado @section('hide_topbar') --}}
+                @unless(View::hasSection('hide_topbar'))
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center gap-4">
+                        <a href="{{ url('/') }}" class="text-emerald-600 font-medium">Chorely</a>
+                    </div>
+
+                    <div class="flex items-center gap-4">
+                        @auth
+                            <span class="text-sm text-gray-600">Hola, <strong>{{ auth()->user()->name }}</strong></span>
+
+                            @if(auth()->user()->is_admin ?? false)
+                                <a href="{{ url('/admin') }}"
+                                   class="px-3 py-2 rounded bg-amber-50 text-amber-700 border border-amber-200 text-sm">
+                                    Admin
+                                </a>
+                            @endif
+
+                            <a href="{{ route('logout') }}" class="px-3 py-2 rounded bg-red-500 text-white text-sm">Cerrar Sesión</a>
+                        @endauth
+
+                        @guest
+                            <a href="{{ route('login') }}" class="px-3 py-2 rounded bg-emerald-600 text-white text-sm">Iniciar Sesión</a>
+                        @endguest
+                    </div>
+                </div>
+                @endunless
+
                 @yield('content')
             </div>
         </div>
@@ -102,7 +131,7 @@
         @csrf
     </form>
 
-    {{-- Small JS helper: any <a href="/logout"> se convertirá en submit POST (evita 419) --}}
+    {{-- Small JS helper: any <a href="/logout"> se convertirá en submit POST --}}
     <script>
       (function(){
         document.addEventListener('click', function(e){

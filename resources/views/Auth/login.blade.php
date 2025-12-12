@@ -2,6 +2,9 @@
 
 @section('title', 'Inicia Sesión con Chorely')
 
+{{-- Oculta la topbar del layout en esta vista (evita el botón "Iniciar Sesión" arriba) --}}
+@section('hide_topbar', true)
+
 @section('content')
   <h1 class="text-3xl font-bold mb-6 text-gray-900">Inicia Sesión en Chorely</h1>
 
@@ -75,7 +78,6 @@
         class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all duration-200 text-gray-900"
         placeholder="tu@email.com"
       >
-      {{-- No mostramos errores debajo del campo (solo caja superior) --}}
     </div>
 
     <div>
@@ -89,7 +91,6 @@
         class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all duration-200 text-gray-900"
         placeholder="••••••••"
       >
-      {{-- No mostramos errores debajo del campo (solo caja superior) --}}
     </div>
 
     <button type="submit"
@@ -122,41 +123,30 @@
       const clientList = document.getElementById('client-error-list');
       const serverBox = document.getElementById('server-error-box');
 
-      // Muestra la cajita de errores del cliente con los mensajes pasados
       function showClientError(messages) {
-        // Oculta la caja del servidor para no confundir al usuario
         if (serverBox) serverBox.style.display = 'none';
-
         clientList.innerHTML = '';
         messages.forEach(msg => {
           const li = document.createElement('li');
           li.textContent = msg;
           clientList.appendChild(li);
         });
-
         clientBox.style.display = 'block';
-        clientBox.classList.remove('hidden');
-        // Opcional: foco para accesibilidad
         clientBox.setAttribute('tabindex', '-1');
         clientBox.focus({preventScroll: true});
       }
 
-      // Si el usuario edita el email, ocultamos la caja cliente (para limpiar UX)
       if (emailInput) {
         emailInput.addEventListener('input', () => {
           if (clientBox) clientBox.style.display = 'none';
-          if (serverBox) serverBox.style.display = 'block'; // si había errores del servidor, vuelve a mostrarlos
+          if (serverBox) serverBox.style.display = 'block';
         });
       }
 
       if (!form) return;
-
       form.addEventListener('submit', function (e) {
         const email = (emailInput && emailInput.value || '').trim();
-
-        // Regex simple que exige algo@algo.algo (útil para UX, no sustituye validación servidor)
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
         const clientErrors = [];
 
         if (!email) {
@@ -168,12 +158,9 @@
         if (clientErrors.length > 0) {
           e.preventDefault();
           showClientError(clientErrors);
-          // Ligeramente desplazar la vista hacia la caja para que el usuario la vea
           clientBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
           return false;
         }
-
-        // Si pasa la validación cliente, el formulario se envía y el servidor hace la validación definitiva
       });
     });
   </script>

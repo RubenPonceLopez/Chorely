@@ -1,16 +1,14 @@
 // public/js/calendar-chorely.js
-// Versión consolidada y robusta — maneja siempre CALENDAR_ID fijo y la asignación por modal.
-// Requiere las siguientes variables desde blade: CSRF_TOKEN, CALENDAR_ID, CALENDAR_INITIAL_DATE, FLAT_ID,
+// Versión consolidada y corregida: dedup robusta eliminando temporales cuando refetch añade drafts.
+// Requiere variables de blade: CSRF_TOKEN, CALENDAR_ID, CALENDAR_INITIAL_DATE, FLAT_ID,
 // CALENDAR_EVENTS_BASE_URL, CALENDAR_HISTORY_LIST_URL, CALENDAR_CLONE_FROM_HISTORIAL_URL, CALENDAR_SAVE_HISTORY_URL, FLAT_MEMBERS
 
 document.addEventListener('DOMContentLoaded', function () {
 
-  // ---------- comprobaciones iniciales ----------
   if (typeof CALENDAR_EVENTS_BASE_URL === 'undefined' || typeof CALENDAR_ID === 'undefined') {
     console.error('Variables CALENDAR_EVENTS_BASE_URL o CALENDAR_ID no definidas.'); return;
   }
 
-  // ---------- CSRF + safeFetch ----------
   const __CSRF = (typeof CSRF_TOKEN !== 'undefined') ? CSRF_TOKEN : (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '');
   async function safeFetch(url, opts = {}) {
     opts = Object.assign({}, opts);
@@ -20,7 +18,6 @@ document.addEventListener('DOMContentLoaded', function () {
     return fetch(url, opts);
   }
 
-  // ---------- util fechas/tiempos ----------
   function dateToYMD(dateObj) {
     if (!dateObj) return '';
     const y = dateObj.getFullYear();
@@ -66,7 +63,6 @@ document.addEventListener('DOMContentLoaded', function () {
     return (aStartMin < bEndMin && bStartMin < aEndMin);
   }
 
-  // ---------- localStorage (por calendar_id) ----------
   let currentCalendarId = Number(CALENDAR_ID) || null;
   function storageKeyFor(calendarId) { return `chorely_drafts_calendar_${calendarId}`; }
   function loadDraftsFor(calendarId){
@@ -86,7 +82,6 @@ document.addEventListener('DOMContentLoaded', function () {
     return `${date}::${start}::${taskId}`;
   }
 
-  // ---------- draggable ----------
   let draggableInstance = null;
   function initDraggable() {
     const tasksEl = document.getElementById('tasks');
@@ -101,7 +96,6 @@ document.addEventListener('DOMContentLoaded', function () {
       draggableInstance = new FullCalendar.Draggable(tasksEl, {
         itemSelector: '.draggable-item.task',
         eventData: function(eventEl) {
-          // IMPORTANT: aseguramos que el data-task-id esté en el elemento (blade lo pone)
           const taskId = eventEl.getAttribute('data-task-id') || eventEl.dataset.taskId || null;
           const title = eventEl.dataset.name || eventEl.textContent.trim();
           return {
@@ -126,7 +120,30 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   initDraggable();
 
-  // ---------- calendar ----------
+  function normalizeEventShape(raw) {
+    const r = raw || {};
+    const out = {};
+    out.id = r.id || r._id || null;
+    out.calendar_id = r.calendar_id || r.calendarId || currentCalendarId || null;
+    out.task_id = r.task_id || r.taskId || (r.extendedProps && (r.extendedProps.taskId ?? r.extendedProps.task_id)) || null;
+    out.assigned_user_id = r.assigned_user_id || r.assignedUserId || (r.extendedProps && (r.extendedProps.usuario ?? r.extendedProps.assigned_user_id)) || null;
+    out.event_date = r.event_date || (r.start ? String(r.start).split('T')[0] : '') || r.eventDate || '';
+    out.start_time = r.start_time || (r.extendedProps && r.extendedProps.start_time) || (r.start ? (new Date(r.start)).toTimeString().slice(0,5) : '') || '';
+    out.end_time = r.end_time || (r.extendedProps && r.extendedProps.end_time) || (r.end ? (new Date(r.end)).toTimeString().slice(0,5) : '') || '';
+    out.status = r.status || (r.extendedProps && r.extendedProps.status) || 'pending';
+    out.title = r.title || '';
+    out.extendedProps = r.extendedProps || {};
+    return out;
+  }
+
+  function eventKeyNormalized(norm){
+    const cid = norm.calendar_id || currentCalendarId || '';
+    const date = norm.event_date || '';
+    const start = normalizeTime(norm.start_time || '');
+    const task = norm.task_id ? String(norm.task_id) : '';
+    return `${cid}::${date}::${start}::${task}`;
+  }
+
   const calendarEl = document.getElementById('calendar');
   if (!calendarEl) { console.error('#calendar no encontrado'); return; }
 
@@ -135,45 +152,21 @@ document.addEventListener('DOMContentLoaded', function () {
     return `${CALENDAR_EVENTS_BASE_URL}?calendar_id=${cid}&start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`;
   }
 
-  function mergeServerWithDrafts(serverEvents) {
-    const drafts = loadDraftsFor(currentCalendarId);
-    const draftKeySet = {};
-    drafts.forEach(d => { if (d._deleted) return; draftKeySet[draftKey(d)] = true; });
-    const filteredServer = (serverEvents||[]).filter(s => {
-      try { const key = draftKey(s); return !draftKeySet[key]; } catch(e){ return true; }
-    });
-    const merged = filteredServer.concat(drafts.filter(d => !d._deleted));
-    return merged;
-  }
-
-  function checkConflictFor(dateStr, taskId, userId, startTime, endTime, ignoreEvent) {
-    const checkRange = normalizeRange(startTime, endTime);
-    if (checkRange.startMin === null || checkRange.endMin === null) return false;
-    const evs = calendar.getEvents();
-    for (let i=0;i<evs.length;i++){
-      const ev = evs[i];
-      if (ignoreEvent && ev === ignoreEvent) continue;
-      if (ignoreEvent && ignoreEvent.id && ev.id && String(ignoreEvent.id) === String(ev.id)) continue;
-      const evDate = ev.start ? dateToYMD(ev.start) : (ev.startStr || '');
-      if (evDate !== dateStr) continue;
-      const evStart = ev.extendedProps && (ev.extendedProps.start_time || ev.extendedProps.startTime) ? (ev.extendedProps.start_time || ev.extendedProps.startTime) : (ev.start ? ev.start.toTimeString().slice(0,5) : '');
-      const evEnd = ev.extendedProps && (ev.extendedProps.end_time || ev.extendedProps.endTime) ? (ev.extendedProps.end_time || ev.extendedProps.endTime) : (ev.end ? ev.end.toTimeString().slice(0,5) : '');
-      const evRange = normalizeRange(evStart, evEnd);
-      if (evRange.startMin === null || evRange.endMin === null) continue;
-      const evTask = ev.extendedProps && (ev.extendedProps.taskId ?? ev.extendedProps.task_id) ? String(ev.extendedProps.taskId ?? ev.extendedProps.task_id) : null;
-      if (taskId && evTask && String(taskId)===String(evTask)) {
-        if (rangesOverlap(checkRange.startMin, checkRange.endMin, evRange.startMin, evRange.endMin)) {
-          return { type:'same_task', conflictingEvent: ev };
-        }
-      }
-      const evUser = ev.extendedProps && (ev.extendedProps.usuario ?? ev.extendedProps.assigned_user_id) ? String(ev.extendedProps.usuario ?? ev.extendedProps.assigned_user_id) : null;
-      if (userId && evUser && String(userId)===String(evUser)) {
-        if (rangesOverlap(checkRange.startMin, checkRange.endMin, evRange.startMin, evRange.endMin)) {
-          return { type:'same_user', conflictingEvent: ev };
-        }
-      }
+  function getUserColor(userId) {
+    const colors = ['#3788d8','#ffc107','#fd7e14','#20c997','#6f42c1','#e83e8c','#0dcaf0','#6610f2'];
+    if (userId === null || typeof userId === 'undefined' || String(userId).trim() === '') return colors[0];
+    if (!isNaN(Number(userId))) {
+      const idx = Math.abs(Number(userId)) % colors.length;
+      return colors[idx];
     }
-    return false;
+    const s = String(userId);
+    let hash = 0;
+    for (let i = 0; i < s.length; i++) {
+      hash = ((hash << 5) - hash) + s.charCodeAt(i);
+      hash |= 0;
+    }
+    const idx = Math.abs(hash) % colors.length;
+    return colors[idx];
   }
 
   const calendar = new FullCalendar.Calendar(calendarEl, {
@@ -184,11 +177,13 @@ document.addEventListener('DOMContentLoaded', function () {
     displayEventTime: false,
 
     events: function(info, successCallback, failureCallback) {
-      const url = buildEventsUrl(info.startStr, info.endStr);
+      // fallback si view no disponible
+      let sISO = info && info.startStr ? info.startStr : (calendar.view && calendar.view.currentStart ? calendar.view.currentStart.toISOString().slice(0,10) : (new Date().toISOString().slice(0,10)));
+      let eISO = info && info.endStr ? info.endStr : (calendar.view && calendar.view.currentEnd ? calendar.view.currentEnd.toISOString().slice(0,10) : (new Date().toISOString().slice(0,10)));
+      const url = buildEventsUrl(sISO, eISO);
       safeFetch(url)
         .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
         .then(serverEvents=>{
-          // serverEvents expected as array of calendar events (controller devuelve array)
           const enriched = (serverEvents||[]).map(item => {
             const copy = Object.assign({}, item);
             if (!copy.event_date && copy.start) {
@@ -196,26 +191,88 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             return copy;
           });
-          const merged = mergeServerWithDrafts(enriched);
-          const normalized = merged.map(item=>{
-            const copy = Object.assign({}, item);
-            if (!copy.start && copy.event_date && copy.start_time) copy.start = `${copy.event_date}T${normalizeTime(copy.start_time)}:00`;
-            if (!copy.end && copy.event_date && copy.end_time) copy.end = `${copy.event_date}T${normalizeTime(copy.end_time)}:00`;
-            copy.extendedProps = copy.extendedProps || {};
-            if (copy.start_time) copy.extendedProps.start_time = normalizeTime(copy.start_time);
-            if (copy.end_time) copy.extendedProps.end_time = normalizeTime(copy.end_time);
-            if (copy.task_id && !copy.extendedProps.taskId) copy.extendedProps.taskId = copy.task_id;
-            if (copy.assigned_user_id && !copy.extendedProps.usuario) copy.extendedProps.usuario = copy.assigned_user_id;
-            copy.title = copy.title || (copy.extendedProps && copy.extendedProps.taskId ? ('Tarea ' + copy.extendedProps.taskId) : 'Tarea');
-            if (copy.extendedProps && copy.extendedProps.color && !copy.backgroundColor) copy.backgroundColor = copy.extendedProps.color;
-            return copy;
+
+          const drafts = loadDraftsFor(currentCalendarId).filter(d=>!d._deleted);
+
+          console.log('[calendar] serverEvents count=', (enriched||[]).length, ' drafts count=', drafts.length);
+
+          // combine and dedupe by stable key (draftKey)
+          const combined = [].concat(enriched || [], drafts || []);
+          const seen = {};
+          const out = [];
+          const keysToReturn = {}; // set of event keys we'll return
+
+          combined.forEach(it => {
+            try {
+              const norm = normalizeEventShape(it);
+              const key = eventKeyNormalized(norm);
+              if (seen[key]) return;
+              seen[key] = true;
+              keysToReturn[key] = true;
+
+              const fc = Object.assign({}, it);
+              if (!fc.id) fc.id = norm.id || makeTempId();
+              if (!fc.start && norm.event_date && norm.start_time) fc.start = `${norm.event_date}T${normalizeTime(norm.start_time)}:00`;
+              if (!fc.end && norm.event_date && norm.end_time) fc.end = `${norm.event_date}T${normalizeTime(norm.end_time)}:00`;
+              fc.extendedProps = fc.extendedProps || {};
+              if (norm.start_time) fc.extendedProps.start_time = normalizeTime(norm.start_time);
+              if (norm.end_time) fc.extendedProps.end_time = normalizeTime(norm.end_time);
+              if (norm.task_id) fc.extendedProps.taskId = norm.task_id;
+              if (norm.assigned_user_id) fc.extendedProps.usuario = norm.assigned_user_id;
+              if (norm.status) fc.extendedProps.status = norm.status;
+              if (fc.extendedProps && fc.extendedProps.color && !fc.backgroundColor) fc.backgroundColor = fc.extendedProps.color;
+              fc.title = fc.title || (fc.extendedProps && fc.extendedProps.taskId ? ('Tarea ' + fc.extendedProps.taskId) : fc.title || 'Tarea');
+              out.push(fc);
+            } catch(e) {
+              try { out.push(it); } catch(_) {}
+            }
           });
-          successCallback(normalized);
+
+          // --- CLEANUP: eliminar duplicados temporales que ya existen en calendar pero no están entre 'out' ids
+          try {
+            const outIds = new Set(out.map(o => String(o.id)));
+            const existing = calendar.getEvents();
+            existing.forEach(ev => {
+              try {
+                const evNorm = normalizeEventShape({
+                  id: ev.id,
+                  calendar_id: currentCalendarId,
+                  task_id: ev.extendedProps && (ev.extendedProps.taskId ?? ev.extendedProps.task_id),
+                  assigned_user_id: ev.extendedProps && (ev.extendedProps.usuario ?? ev.extendedProps.assigned_user_id),
+                  event_date: ev.start ? dateToYMD(ev.start) : (ev.startStr || ''),
+                  start_time: ev.extendedProps && ev.extendedProps.start_time ? ev.extendedProps.start_time : (ev.start ? ev.start.toTimeString().slice(0,5) : ''),
+                  end_time: ev.extendedProps && ev.extendedProps.end_time ? ev.extendedProps.end_time : (ev.end ? ev.end.toTimeString().slice(0,5) : '')
+                });
+                const k = eventKeyNormalized(evNorm);
+                // Si la clave está en keysToReturn y el evento actual NO está ya representado por alguno de los out (ids diferentes)
+                if (keysToReturn[k] && !outIds.has(String(ev.id))) {
+                  // eliminamos el evento duplicado temporal
+                  try { ev.remove(); } catch(e) { /* no fatal */ }
+                }
+              } catch(e){ /* ignore */ }
+            });
+          } catch(e){ console.warn('cleanup duplicates failed', e); }
+
+          console.log('[calendar] after dedupe count=', out.length);
+          successCallback(out);
         })
         .catch(err=>{
           console.error('Error cargando eventos (server):', err);
           const drafts = loadDraftsFor(currentCalendarId).filter(d=>!d._deleted);
-          successCallback(drafts);
+          const fcDrafts = drafts.map(d=>{
+            const n = normalizeEventShape(d);
+            const out = Object.assign({}, d);
+            if (n.event_date && n.start_time) out.start = `${n.event_date}T${normalizeTime(n.start_time)}:00`;
+            if (n.event_date && n.end_time) out.end = `${n.event_date}T${normalizeTime(n.end_time)}:00`;
+            out.extendedProps = out.extendedProps || {};
+            out.extendedProps.start_time = n.start_time || '';
+            out.extendedProps.end_time = n.end_time || '';
+            if (n.assigned_user_id) out.extendedProps.usuario = n.assigned_user_id;
+            if (n.task_id) out.extendedProps.taskId = n.task_id;
+            if (!out.id) out.id = d.id || makeTempId();
+            return out;
+          });
+          successCallback(fcDrafts);
         });
     },
 
@@ -259,10 +316,11 @@ document.addEventListener('DOMContentLoaded', function () {
     eventDidMount: function(info) {
       try {
         const ev = info.event;
+        const evUser = ev.extendedProps && (ev.extendedProps.usuario ?? ev.extendedProps.assigned_user_id);
         if (ev.extendedProps && ev.extendedProps.status === 'done') {
           info.el.style.backgroundColor = '#28a745';
-        } else if (ev.extendedProps && ev.extendedProps.usuario) {
-          info.el.style.backgroundColor = getUserColor(ev.extendedProps.usuario);
+        } else if (evUser) {
+          info.el.style.backgroundColor = getUserColor(evUser);
         } else if (ev.backgroundColor) {
           info.el.style.backgroundColor = ev.backgroundColor;
         } else {
@@ -283,13 +341,13 @@ document.addEventListener('DOMContentLoaded', function () {
     datesSet: function(info) {
       try { calendar.getEvents().forEach(ev => { if (ev.extendedProps && ev.extendedProps._temp && !ev.id) ev.remove(); }); } catch(e){console.warn('datesSet cleanup', e);}
       checkIfCalendarIsLockedForCurrent().catch(()=>{});
+      // refetch a la vista nueva
       calendar.refetchEvents();
     }
   });
 
   calendar.render();
 
-  // ---------- bloqueo por 'Definitivo' ----------
   let CALENDAR_IS_LOCKED = false;
 
   async function checkIfCalendarIsLockedForCurrent() {
@@ -336,7 +394,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
   checkIfCalendarIsLockedForCurrent().catch(()=>{});
 
-  // ---------- modal + handlers ----------
   const modal = document.getElementById('userModal');
   const modalBackdrop = document.getElementById('userModalBackdrop');
   const userSelect = document.getElementById('userSelect');
@@ -438,10 +495,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  // ---------- assign modal handlers (robusto) ----------
   if (assignBtn) {
     assignBtn.addEventListener('click', async function(){
-      // Recuperar evento si currentEvent nulo
       if (!currentEvent) {
         console.warn('[assign] currentEvent null — intentando recuperar...');
         let recovered = null;
@@ -514,7 +569,6 @@ document.addEventListener('DOMContentLoaded', function () {
       try { currentEvent.setProp('title', newTitle); } catch(e){ console.warn('setProp title', e); }
 
       try { currentEvent.setProp('backgroundColor', status === 'done' ? '#28a745' : getUserColor(userId)); } catch(e){}
-
       try{ currentEvent.setAllDay(false); }catch(e){}
 
       try {
@@ -546,7 +600,6 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   if (modalBackdrop) modalBackdrop.addEventListener('click', function(){ if (cancelBtn) cancelBtn.click(); });
 
-  // ---------- Save distribution (Definitivo) ----------
   const saveBtn = document.getElementById('saveDistributionBtn');
   if (saveBtn) {
     saveBtn.addEventListener('click', async function(){
@@ -578,7 +631,6 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // ---------- Save draft ----------
   const saveDraftBtn = document.getElementById('saveDraftBtn');
   if (saveDraftBtn) {
     saveDraftBtn.addEventListener('click', async function(){
@@ -608,7 +660,6 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // ---------- modal duplicar ----------
   (function setupDuplicateModal(){
     const duplicateModal = document.getElementById('duplicateModal');
     const openDuplicateModalBtn = document.getElementById('openDuplicateModalBtn');
@@ -698,12 +749,34 @@ document.addEventListener('DOMContentLoaded', function () {
 
   })();
 
-  // ---------- helpers ----------
-  function getUserColor(userId) {
-    if (!userId) return '#3788d8';
-    const colors = ['#3788d8','#ffc107','#fd7e14','#20c997','#6f42c1','#e83e8c'];
-    const idx = Number(userId) || 0;
-    return colors[idx % colors.length];
+  function checkConflictFor(dateStr, taskId, userId, startTime, endTime, ignoreEvent) {
+    const checkRange = normalizeRange(startTime, endTime);
+    if (checkRange.startMin === null || checkRange.endMin === null) return false;
+    const evs = calendar.getEvents();
+    for (let i=0;i<evs.length;i++){
+      const ev = evs[i];
+      if (ignoreEvent && ev === ignoreEvent) continue;
+      if (ignoreEvent && ignoreEvent.id && ev.id && String(ignoreEvent.id) === String(ev.id)) continue;
+      const evDate = ev.start ? dateToYMD(ev.start) : (ev.startStr || '');
+      if (evDate !== dateStr) continue;
+      const evStart = ev.extendedProps && (ev.extendedProps.start_time || ev.extendedProps.startTime) ? (ev.extendedProps.start_time || ev.extendedProps.startTime) : (ev.start ? ev.start.toTimeString().slice(0,5) : '');
+      const evEnd = ev.extendedProps && (ev.extendedProps.end_time || ev.extendedProps.endTime) ? (ev.extendedProps.end_time || ev.extendedProps.endTime) : (ev.end ? ev.end.toTimeString().slice(0,5) : '');
+      const evRange = normalizeRange(evStart, evEnd);
+      if (evRange.startMin === null || evRange.endMin === null) continue;
+      const evTask = ev.extendedProps && (ev.extendedProps.taskId ?? ev.extendedProps.task_id) ? String(ev.extendedProps.taskId ?? ev.extendedProps.task_id) : null;
+      if (taskId && evTask && String(taskId)===String(evTask)) {
+        if (rangesOverlap(checkRange.startMin, checkRange.endMin, evRange.startMin, evRange.endMin)) {
+          return { type:'same_task', conflictingEvent: ev };
+        }
+      }
+      const evUser = ev.extendedProps && (ev.extendedProps.usuario ?? ev.extendedProps.assigned_user_id) ? String(ev.extendedProps.usuario ?? ev.extendedProps.assigned_user_id) : null;
+      if (userId && evUser && String(userId)===String(evUser)) {
+        if (rangesOverlap(checkRange.startMin, checkRange.endMin, evRange.startMin, evRange.endMin)) {
+          return { type:'same_user', conflictingEvent: ev };
+        }
+      }
+    }
+    return false;
   }
 
 }); // DOMContentLoaded
