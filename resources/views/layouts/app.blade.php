@@ -138,7 +138,6 @@
           const a = e.target.closest && e.target.closest('a');
           if (!a) return;
           const href = a.getAttribute('href') || '';
-          // Normaliza rutas que terminen en /logout o ?logout
           if (href.replace(window.location.origin, '').split('?')[0].endsWith('/logout')) {
             e.preventDefault();
             const form = document.getElementById('logout-form');
@@ -146,6 +145,216 @@
           }
         }, true);
       })();
+    </script>
+
+    {{-- =========================
+         BANNER DE COOKIES (Tailwind - localStorage)
+         ========================= --}}
+    <div id="chorely-cookie-banner" class="fixed left-4 right-4 bottom-4 max-w-6xl mx-auto bg-white border border-emerald-100 rounded-2xl shadow-2xl p-6 z-[99999] hidden"
+         role="dialog" aria-labelledby="chorely-cookie-title" aria-describedby="chorely-cookie-desc" aria-modal="true">
+      <div class="flex flex-col md:flex-row md:items-start md:gap-6">
+        <div class="md:flex-1">
+          <h3 id="chorely-cookie-title" class="text-lg font-semibold text-gray-800">Esta página web usa cookies</h3>
+          <p id="chorely-cookie-desc" class="mt-2 text-sm text-gray-600">
+            Las cookies se usan para personalizar contenido y anuncios, ofrecer funciones de redes sociales y analizar el tráfico. Compartimos información con partners para publicidad y análisis solo si das tu consentimiento.
+          </p>
+        </div>
+
+        <div class="mt-4 md:mt-0 md:flex md:flex-col md:justify-between md:items-end">
+          <div class="flex gap-3 items-center">
+            <button id="chorely-allow-select" class="px-4 py-2 rounded-md font-semibold bg-emerald-600 text-white hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-300">
+              Permitir la selección
+            </button>
+            <button id="chorely-allow-all" class="px-4 py-2 rounded-md font-semibold bg-emerald-800 text-white hover:bg-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-300">
+              Permitir todas las cookies
+            </button>
+          </div>
+
+          <div class="mt-3 w-full md:w-auto">
+            <div class="flex items-center gap-3 text-sm text-gray-700">
+              <label class="flex items-center gap-2">
+                <input id="c_needed" type="checkbox" checked disabled class="w-4 h-4">
+                <span class="font-medium">Necesario</span>
+              </label>
+
+              <label class="flex items-center gap-2">
+                <input id="c_preferences" type="checkbox" class="w-4 h-4">
+                <span>Preferencias</span>
+              </label>
+
+              <label class="flex items-center gap-2">
+                <input id="c_stats" type="checkbox" class="w-4 h-4">
+                <span>Estadística</span>
+              </label>
+
+              <label class="flex items-center gap-2">
+                <input id="c_marketing" type="checkbox" class="w-4 h-4">
+                <span>Marketing</span>
+              </label>
+            </div>
+
+            <div class="mt-2">
+              <button id="chorely-show-details" class="text-sm text-gray-500 hover:underline">Mostrar detalles ▾</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="chorely-details" class="mt-4 bg-emerald-50 border border-emerald-100 p-4 rounded-md text-sm text-gray-700 hidden" aria-hidden="true">
+        <p><strong>Necesario:</strong> Cookies imprescindibles para el funcionamiento.</p>
+        <p class="mt-2"><strong>Preferencias:</strong> Guardan idioma y ajustes de la UI.</p>
+        <p class="mt-2"><strong>Estadística:</strong> Recogen uso para mejorar la app.</p>
+        <p class="mt-2"><strong>Marketing:</strong> Publicidad y anuncios personalizados.</p>
+      </div>
+    </div>
+
+    {{-- Script de consentimiento (localStorage + detección borrado) --}}
+    <script>
+    (function(){
+      const LS_KEY = 'chorely_cookie_consent_v1';
+      const banner = document.getElementById('chorely-cookie-banner');
+      const btnAll = document.getElementById('chorely-allow-all');
+      const btnSelect = document.getElementById('chorely-allow-select');
+      const showDetails = document.getElementById('chorely-show-details');
+      const details = document.getElementById('chorely-details');
+
+      const cbPreferences = document.getElementById('c_preferences');
+      const cbStats = document.getElementById('c_stats');
+      const cbMarketing = document.getElementById('c_marketing');
+
+      // parse / stringify safe
+      function getConsent(){
+        try {
+          const raw = localStorage.getItem(LS_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch(e) { return null; }
+      }
+      function saveConsent(obj){
+        obj.timestamp = new Date().toISOString();
+        localStorage.setItem(LS_KEY, JSON.stringify(obj));
+      }
+      function removeConsent(){
+        localStorage.removeItem(LS_KEY);
+      }
+
+      // carga condicional de scripts (ajusta las rutas o llamadas a init)
+      function loadScriptOnce(src, id){
+        if(!src) return;
+        if(document.getElementById(id)) return;
+        const s = document.createElement('script');
+        s.src = src;
+        s.id = id;
+        s.async = true;
+        document.head.appendChild(s);
+      }
+      function applyConsent(consent){
+        if(!consent) return;
+        // ejemplo: carga condicional (pon tus rutas o init functions)
+        if(consent.statistics){
+          loadScriptOnce('https://example.com/analytics.js', 'chorely-analytics');
+        }
+        if(consent.marketing){
+          loadScriptOnce('https://example.com/marketing.js', 'chorely-marketing');
+        }
+      }
+
+      // Mostrar banner si no hay consentimiento
+      function showBanner(){
+        banner.classList.remove('hidden');
+        // Restaurar checkboxes al estado guardado si existe
+        const saved = getConsent();
+        if(saved){
+          cbPreferences.checked = !!saved.preferences;
+          cbStats.checked = !!saved.statistics;
+          cbMarketing.checked = !!saved.marketing;
+        }
+      }
+      function hideBanner(){
+        banner.classList.add('hidden');
+      }
+
+      // Inicial
+      const saved = getConsent();
+      if(!saved){
+        showBanner();
+      } else {
+        applyConsent(saved);
+      }
+
+      // Eventos de botones
+      btnAll.addEventListener('click', function(){
+        const consent = { necessary: true, preferences: true, statistics: true, marketing: true };
+        saveConsent(consent);
+        applyConsent(consent);
+        hideBanner();
+      });
+
+      btnSelect.addEventListener('click', function(){
+        const consent = {
+          necessary: true,
+          preferences: !!cbPreferences.checked,
+          statistics: !!cbStats.checked,
+          marketing: !!cbMarketing.checked
+        };
+        saveConsent(consent);
+        applyConsent(consent);
+        hideBanner();
+      });
+
+      showDetails.addEventListener('click', function(){
+        const isHidden = details.classList.contains('hidden');
+        details.classList.toggle('hidden', !isHidden);
+        details.setAttribute('aria-hidden', String(!isHidden));
+        showDetails.textContent = isHidden ? 'Ocultar detalles ▴' : 'Mostrar detalles ▾';
+      });
+
+      // Detectar borrado o cambios de consentimiento desde OTRA pestaña
+      window.addEventListener('storage', function(e){
+        if(e.key === LS_KEY){
+          // si se elimina (newValue === null) o cambia, mostramos banner si no hay valor
+          if(!e.newValue){
+            // consentimiento borrado -> mostrar popup/banner
+            showBanner();
+            // opcional: mostrar una notificación flotante (aquí reusamos el banner)
+          } else {
+            // nuevo consentimiento guardado en otra pestaña: aplicar y ocultar banner
+            try {
+              const newConsent = JSON.parse(e.newValue);
+              applyConsent(newConsent);
+              hideBanner();
+            } catch(err){ /* ignore */ }
+          }
+        }
+      });
+
+      // Detectar borrado en la MISMA pestaña (ej. alguien borra desde consola)
+      // 1) Al volver a la pestaña (focus), comprobamos
+      window.addEventListener('focus', function(){
+        const now = getConsent();
+        if(!now){
+          showBanner();
+        }
+      });
+      // 2) Fallback: comprobación ligera cada 3s (bajo impacto)
+      let lastHas = !!getConsent();
+      setInterval(function(){
+        const curHas = !!getConsent();
+        if(lastHas && !curHas){
+          // se ha borrado
+          showBanner();
+        }
+        lastHas = curHas;
+      }, 3000);
+
+      // API pública
+      window.ChorelyCookie = {
+        getConsent: getConsent,
+        revokeConsent: function(){
+          removeConsent();
+          showBanner();
+        }
+      };
+    })();
     </script>
 
 </body>
