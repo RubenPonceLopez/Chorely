@@ -3,7 +3,7 @@
 @section('title', 'Crear Calendario - Chorely')
 
 @section('content')
-@include('partials.navbar')
+
 
 <div class="max-w-7xl mx-auto px-6 py-8">
     <div class="flex items-center justify-between mb-6">
