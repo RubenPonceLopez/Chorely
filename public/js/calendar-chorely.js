@@ -1,12 +1,13 @@
-// public/js/calendar-chorely.js
-// Versión consolidada y corregida: dedup robusta eliminando temporales cuando refetch añade drafts.
-// Requiere variables de blade: CSRF_TOKEN, CALENDAR_ID, CALENDAR_INITIAL_DATE, FLAT_ID,
-// CALENDAR_EVENTS_BASE_URL, CALENDAR_HISTORY_LIST_URL, CALENDAR_CLONE_FROM_HISTORIAL_URL, CALENDAR_SAVE_HISTORY_URL, FLAT_MEMBERS
 
-document.addEventListener('DOMContentLoaded', function () {
+/*
+ - Lógica principal del calendario interactivo de Chorely.
+- Aquí se gestiona la carga de eventos, la asignación de tareas, el drag & drop,
+  la validación de conflictos y el guardado de borradores y meses definitivos.
+*/
+document.addEventListener('DOMContentLoaded', function () {  //Se espera a que el DOM esté completamente cargado antes de ejecutar el código
 
   if (typeof CALENDAR_EVENTS_BASE_URL === 'undefined' || typeof CALENDAR_ID === 'undefined') {
-    console.error('Variables CALENDAR_EVENTS_BASE_URL o CALENDAR_ID no definidas.'); return;
+    console.error('Variables CALENDAR_EVENTS_BASE_URL o CALENDAR_ID no definidas.'); return;  
   }
 
   const __CSRF = (typeof CSRF_TOKEN !== 'undefined') ? CSRF_TOKEN : (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '');
@@ -172,7 +173,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
     initialDate: CALENDAR_INITIAL_DATE,
-    droppable: true,
+    droppable: true, //Permite arrastrar tareas al calendario
     editable: true,
     displayEventTime: false,
 
@@ -389,7 +390,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const saveDraftBtn = document.getElementById('saveDraftBtn');
     if (saveBtn) saveBtn.disabled = locked;
     if (saveDraftBtn) saveDraftBtn.disabled = locked;
-    if (locked) console.info('Este calendario está marcado como DEFINITIVO: edición desactivada.');
+    if (locked) console.info('Este calendario está marcado como DEFINITIVO: edición desactivada.');  //Desactivamos la edición ya que el mes es definitivo
   }
 
   checkIfCalendarIsLockedForCurrent().catch(()=>{});
@@ -749,7 +750,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   })();
 
-  function checkConflictFor(dateStr, taskId, userId, startTime, endTime, ignoreEvent) {
+  function checkConflictFor(dateStr, taskId, userId, startTime, endTime, ignoreEvent) {  //Función para evitar conflictos de horario en las tareas
     const checkRange = normalizeRange(startTime, endTime);
     if (checkRange.startMin === null || checkRange.endMin === null) return false;
     const evs = calendar.getEvents();
@@ -779,4 +780,4 @@ document.addEventListener('DOMContentLoaded', function () {
     return false;
   }
 
-}); // DOMContentLoaded
+}); 

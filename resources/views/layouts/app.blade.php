@@ -237,7 +237,7 @@
         localStorage.removeItem(LS_KEY);
       }
 
-      // carga condicional de scripts (ajusta las rutas o llamadas a init)
+      // carga condicional de scripts
       function loadScriptOnce(src, id){
         if(!src) return;
         if(document.getElementById(id)) return;
@@ -335,7 +335,7 @@
           showBanner();
         }
       });
-      // 2) Fallback: comprobación ligera cada 3s (bajo impacto)
+      // 2) Fallback: comprobación ligera cada 3s 
       let lastHas = !!getConsent();
       setInterval(function(){
         const curHas = !!getConsent();

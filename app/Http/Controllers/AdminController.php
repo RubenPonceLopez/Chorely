@@ -71,7 +71,7 @@ class AdminController extends Controller
 
         $user->save();
 
-        // ⬅️ MODIFICADO — volver al listado con mensaje de éxito
+        //Volver al listado con mensaje de éxito
         return redirect()->route('admin.users.index')
             ->with('success', 'Usuario actualizado correctamente.');
     }

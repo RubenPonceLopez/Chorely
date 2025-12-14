@@ -105,7 +105,7 @@ class CalendarEventController extends Controller {
             try {
                 $data['event_date'] = Carbon::parse($data['event_date'])->format('Y-m-d');
             } catch (\Exception $e) {
-                // dejamos como vino si no pudo parsearse (se validó antes)
+                // dejamos como estaba si no pudo parsearse (se validó antes)
             }
         }
 

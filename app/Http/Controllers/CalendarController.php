@@ -22,7 +22,7 @@ class CalendarController extends Controller
      *
      * IMPORTANTE: Excluye calendarios cuyo nombre empieza por "Clonado - "
      * para que los calendarios creados mediante clonación no aparezcan
-     * en la lista principal (solución no destructiva).
+     * en la lista principal.
      *
      * Ahora devuelve un Paginator (->paginate) para poder usar ->links() en la vista.
      */
